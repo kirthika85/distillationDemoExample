@@ -11,25 +11,35 @@ nltk.download('wordnet')
 
 def scrape_transcript(url):
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        "User-Agent": "Mozilla/5.0"
     }
     try:
         response = requests.get(url, headers=headers)
         soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Seeking Alpha's transcript structure
-        transcript_container = soup.find('div', class_='article-section')
-        if not transcript_container:
-            return ""
-            
-        # Extract all paragraphs with transcript content
-        paragraphs = transcript_container.find_all('p', class_='paragraph')
+
+        # Try to find the main transcript section
+        section = soup.find('section')
+        if section:
+            paragraphs = section.find_all('p')
+        else:
+            paragraphs = soup.find_all('p')
+
+        # Join all paragraph texts
         transcript = ' '.join([p.get_text(strip=True) for p in paragraphs])
-        
-        # Remove irrelevant sections
-        transcript = transcript.replace("Operator", "").replace("Q&A Session", "")
+
+        # Optionally, filter out boilerplate or disclaimers
+        # For example, remove repeated "Operator" or "Conference Call Participants"
+        for phrase in [
+            "Operator", "Conference Call Participants", "Company Participants",
+            "Q&A Session", "Forward-Looking Statements", "Safe Harbor Statement"
+        ]:
+            transcript = transcript.replace(phrase, "")
+
+        # If transcript is too short, treat as failure
+        if len(transcript) < 500:
+            return ""
+
         return transcript.strip()
-    
     except Exception as e:
         st.error(f"Scraping error: {str(e)}")
         return ""
