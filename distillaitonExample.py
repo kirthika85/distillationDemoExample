@@ -12,9 +12,13 @@ nltk.download('punkt_tab')
 # Site-specific configurations
 SITE_CONFIG = {
     'seekingalpha': {
-        'container': {'name': 'section', 'class_': re.compile(r'article-section')},
-        'paragraphs': {'name': 'p', 'class_': 'paragraph'},
-        'filters': ['Operator', 'Q&A Session', 'Conference Call Participants', 'SA Transcripts Team']
+        'container': {'name': 'div', 'class_': 'article-content'},
+        'paragraphs': {'name': 'p', 'class_': re.compile(r'paragraph-')},
+        'filters': [
+            'Read more current', 'View all earnings call transcripts',
+            'Company Participants', 'Conference Call Participants', 
+            'Operator', 'Q&A Session', 'This article was'
+        ]
     },
     'investing.com': {
         'container': {'name': 'div', 'class_': 'articlePage'},
