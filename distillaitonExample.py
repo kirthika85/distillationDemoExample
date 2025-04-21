@@ -1,3 +1,4 @@
+
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
@@ -6,42 +7,20 @@ import openai
 
 nltk.download('punkt')
 nltk.download('punkt_tab')
-nltk.download('wordnet')
-    
 
 def scrape_transcript(url):
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
     try:
-        response = requests.get(url, headers=headers)
+        response = requests.get(url)
         soup = BeautifulSoup(response.text, 'html.parser')
-
-        # Try to find the main transcript section
-        section = soup.find('section')
-        if section:
-            paragraphs = section.find_all('p')
-        else:
-            paragraphs = soup.find_all('p')
-
-        # Join all paragraph texts
-        transcript = ' '.join([p.get_text(strip=True) for p in paragraphs])
-
-        # Optionally, filter out boilerplate or disclaimers
-        # For example, remove repeated "Operator" or "Conference Call Participants"
-        for phrase in [
-            "Operator", "Conference Call Participants", "Company Participants",
-            "Q&A Session", "Forward-Looking Statements", "Safe Harbor Statement"
-        ]:
-            transcript = transcript.replace(phrase, "")
-
-        # If transcript is too short, treat as failure
-        if len(transcript) < 500:
-            return ""
-
+        transcript_containers = soup.find_all(['div', 'section'], class_=['transcript-text', 'article-text', 'transcript-container'])
+        if not transcript_containers:
+            transcript_containers = soup.find_all('p')
+        transcript = ' '.join([container.get_text(strip=True) for container in transcript_containers])
+        irrelevant_phrases = ['Video Player', 'Loading Video', 'Transcript', 'Q&A Session']
+        for phrase in irrelevant_phrases:
+            transcript = transcript.replace(phrase, '')
         return transcript.strip()
-    except Exception as e:
-        st.error(f"Scraping error: {str(e)}")
+    except Exception:
         return ""
 
 def analyze_sentiment_gpt4(text, api_key):
@@ -68,19 +47,19 @@ def analyze_sentiment_gpt4(text, api_key):
 # --- Streamlit UI ---
 st.title("Earnings Call Sentiment Analysis (GPT-4)")
 
-url = st.text_input("Enter the transcript URL:", 
-                   value="https://seekingalpha.com/article/4776029-snap-on-incorporated-sna-q1-2025-earnings-call-transcript")
+url = st.text_input("Enter the transcript URL:")
 
 if st.button("Analyze Sentiment"):
     if not url:
         st.warning("Please enter a transcript URL.")
         st.stop()
 
+    # Get OpenAI API key from Streamlit secrets
     api_key = st.secrets["OPENAI_API_KEY"]
 
     transcript = scrape_transcript(url)
     if not transcript:
-        st.error("Unable to extract transcript. Seeking Alpha structure may have changed.")
+        st.error("Unable to extract transcript from the provided URL. Please check the URL and try again.")
     else:
         st.subheader("Transcript Sample")
         st.write(transcript[:500] + "...")
@@ -103,3 +82,5 @@ if st.button("Analyze Sentiment"):
             for i in range(sample_size):
                 st.write(f"**Sentence {i+1}:** {sentences[i]}")
                 st.write(f"**Sentiment:** {labels[i].capitalize()}\n")
+        else:
+            st.error("No sentiment results returned.")
