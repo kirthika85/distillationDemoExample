@@ -72,26 +72,32 @@ def scrape_transcript(url):
         st.error(f"Scraping error: {str(e)}")
         return ""
 
-def analyze_sentiment_gpt4(text, api_key):
+def analyze_sentiment_gpt4(text, api_key, chunk_size=15):
     client = openai.OpenAI(api_key=api_key)
     sentences = nltk.sent_tokenize(text)
-    prompt = (
-        "Classify each sentence's sentiment as ONLY positive, negative, or neutral. "
-        "Return EXACTLY a comma-separated list of labels in order. Example: positive, neutral, negative\n\n"
-    )
-    for i, sentence in enumerate(sentences, 1):
-        prompt += f"{i}. {sentence}\n"
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
-            max_tokens=500
+    all_labels = []
+    for i in range(0, len(sentences), chunk_size):
+        chunk = sentences[i:i+chunk_size]
+        prompt = (
+            "Classify each sentence's sentiment as ONLY positive, negative, or neutral. "
+            "Return EXACTLY a comma-separated list of labels in order. Example: positive, neutral, negative\n\n"
         )
-        return response.choices[0].message.content.split(', ')
-    except Exception as e:
-        st.error(f"OpenAI API error: {e}")
-        return []
+        for j, sentence in enumerate(chunk, 1):
+            prompt += f"{j}. {sentence}\n"
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+                max_tokens=500
+            )
+            labels = response.choices[0].message.content.split(', ')
+            all_labels.extend(labels)
+        except Exception as e:
+            st.error(f"OpenAI API error: {e}")
+            return []
+    return all_labels
+
 
 # Streamlit UI
 st.title("Multi-Site Earnings Call Sentiment Analyzer")
