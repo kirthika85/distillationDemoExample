@@ -4,7 +4,8 @@ from bs4 import BeautifulSoup
 import nltk
 import openai
 
-nltk.download('punkt', quiet=True)
+nltk.download('punkt')
+nltk.download('punkt_tab')
 
 def scrape_transcript(url):
     try:
