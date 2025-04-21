@@ -4,13 +4,10 @@ from bs4 import BeautifulSoup
 import nltk
 import openai
 
-# Configure NLTK data path
-nltk_data_dir = "/tmp/nltk_data"
-nltk.data.path.append(nltk_data_dir)
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt', download_dir=nltk_data_dir)
+nltk.download('punkt')
+nltk.download('punkt_tab')
+nltk.download('wordnet')
+    
 
 def scrape_transcript(url):
     headers = {
