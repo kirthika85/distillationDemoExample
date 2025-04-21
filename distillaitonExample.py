@@ -12,12 +12,11 @@ nltk.download('punkt_tab')
 # Site-specific configurations
 SITE_CONFIG = {
     'seekingalpha': {
-        'container': {'name': 'div', 'class_': 'article-content'},
-        'paragraphs': {'name': 'p', 'class_': re.compile(r'paragraph-')},
+        'container': {'name': 'div', 'class_': 'article-body'},
+        'paragraphs': {'name': 'p', 'class_': re.compile(r'^paragraph')},
         'filters': [
-            'Read more current', 'View all earnings call transcripts',
-            'Company Participants', 'Conference Call Participants', 
-            'Operator', 'Q&A Session', 'This article was'
+            'Sign up here', 'Read more', 'This is a transcript', 
+            'Company Participants', 'Operator', 'Q&A Session'
         ]
     },
     'investing.com': {
@@ -46,7 +45,10 @@ def get_site_config(url):
 
 def scrape_transcript(url):
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.google.com/",
+        "DNT": "1"
     }
     try:
         response = requests.get(url, headers=headers)
