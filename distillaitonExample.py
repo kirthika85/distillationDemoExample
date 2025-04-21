@@ -1,26 +1,69 @@
-
 import streamlit as st
 import requests
-from bs4 import BeautifulSoup
+from bsio import BeautifulSoup
 import nltk
 import openai
+import re
 
+# Configure NLTK
 nltk.download('punkt')
 nltk.download('punkt_tab')
 
+# Site-specific configurations
+SITE_CONFIG = {
+    'seekingalpha': {
+        'container': {'name': 'section', 'class_': re.compile(r'article-section')},
+        'paragraphs': {'name': 'p', 'class_': 'paragraph'},
+        'filters': ['Operator', 'Q&A Session', 'Conference Call Participants', 'SA Transcripts Team']
+    },
+    'investing.com': {
+        'container': {'name': 'div', 'class_': 'articlePage'},
+        'paragraphs': {'name': 'p'},
+        'filters': ['This article', 'For more information', 'Disclaimer:']
+    },
+    'marketbeat.com': {
+        'container': {'name': 'div', 'class_': 'transcript'},
+        'paragraphs': {'name': 'p'},
+        'filters': ['Disclaimer', 'Forward-Looking Statements']
+    },
+    'default': {
+        'container': {'name': 'body'},
+        'paragraphs': {'name': 'p'},
+        'filters': ['Operator', 'Q&A', 'Forward-Looking Statements']
+    }
+}
+
+def get_site_config(url):
+    """Identify which site config to use based on URL"""
+    for site in SITE_CONFIG:
+        if site in url:
+            return SITE_CONFIG[site]
+    return SITE_CONFIG['default']
+
 def scrape_transcript(url):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
     try:
-        response = requests.get(url)
+        response = requests.get(url, headers=headers)
         soup = BeautifulSoup(response.text, 'html.parser')
-        transcript_containers = soup.find_all(['div', 'section'], class_=['transcript-text', 'article-text', 'transcript-container'])
-        if not transcript_containers:
-            transcript_containers = soup.find_all('p')
-        transcript = ' '.join([container.get_text(strip=True) for container in transcript_containers])
-        irrelevant_phrases = ['Video Player', 'Loading Video', 'Transcript', 'Q&A Session']
-        for phrase in irrelevant_phrases:
-            transcript = transcript.replace(phrase, '')
-        return transcript.strip()
-    except Exception:
+        
+        config = get_site_config(url)
+        container = soup.find(**config['container']) or soup
+        
+        paragraphs = container.find_all(**config['paragraphs'])
+        transcript = []
+        
+        for p in paragraphs:
+            text = p.get_text(strip=True)
+            if text and not any(text.startswith(f) for f in config['filters']):
+                transcript.append(text)
+                
+        full_text = ' '.join(transcript)
+        return full_text.strip() if len(full_text) > 500 else ""
+    
+    except Exception as e:
+        st.error(f"Scraping error: {str(e)}")
         return ""
 
 def analyze_sentiment_gpt4(text, api_key):
@@ -44,43 +87,50 @@ def analyze_sentiment_gpt4(text, api_key):
         st.error(f"OpenAI API error: {e}")
         return []
 
-# --- Streamlit UI ---
-st.title("Earnings Call Sentiment Analysis (GPT-4)")
+# Streamlit UI
+st.title("Multi-Site Earnings Call Sentiment Analyzer")
 
-url = st.text_input("Enter the transcript URL:")
+url = st.text_input("Enter transcript URL:", 
+                   value="https://www.investing.com/news/transcripts/earnings-call-transcript-badger-meter-q1-2025-beats-earnings-expectations-93CH-3991443")
 
 if st.button("Analyze Sentiment"):
     if not url:
         st.warning("Please enter a transcript URL.")
         st.stop()
 
-    # Get OpenAI API key from Streamlit secrets
-    api_key = st.secrets["OPENAI_API_KEY"]
+    api_key = st.secrets.get("OPENAI_API_KEY", "your-api-key-here")
 
-    transcript = scrape_transcript(url)
+    with st.spinner("Scraping transcript..."):
+        transcript = scrape_transcript(url)
+    
     if not transcript:
-        st.error("Unable to extract transcript from the provided URL. Please check the URL and try again.")
-    else:
-        st.subheader("Transcript Sample")
-        st.write(transcript[:500] + "...")
+        st.error("Failed to extract transcript. Site structure may have changed.")
+        st.stop()
 
+    st.subheader("Transcript Preview")
+    st.write(transcript[:500] + "...")
+
+    with st.spinner("Analyzing sentiment with GPT-4..."):
         labels = analyze_sentiment_gpt4(transcript, api_key)
-        if labels:
-            sentiment_counts = {
-                "positive": labels.count('positive'),
-                "neutral": labels.count('neutral'),
-                "negative": labels.count('negative')
-            }
-            st.subheader("Sentiment Results")
-            st.write(f"Positive: {sentiment_counts['positive']}")
-            st.write(f"Neutral: {sentiment_counts['neutral']}")
-            st.write(f"Negative: {sentiment_counts['negative']}")
+    
+    if labels:
+        sentiment_counts = {
+            "positive": labels.count('positive'),
+            "neutral": labels.count('neutral'),
+            "negative": labels.count('negative')
+        }
+        
+        st.subheader("Sentiment Distribution")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Positive", sentiment_counts['positive'])
+        col2.metric("Neutral", sentiment_counts['neutral'])
+        col3.metric("Negative", sentiment_counts['negative'])
 
-            sentences = nltk.sent_tokenize(transcript)
-            sample_size = min(5, len(sentences))
-            st.subheader("Sample Analysis")
-            for i in range(sample_size):
-                st.write(f"**Sentence {i+1}:** {sentences[i]}")
-                st.write(f"**Sentiment:** {labels[i].capitalize()}\n")
-        else:
-            st.error("No sentiment results returned.")
+        st.subheader("Sample Analysis")
+        sentences = nltk.sent_tokenize(transcript)
+        for i in range(min(3, len(sentences))):
+            st.write(f"**Sentence {i+1}:** {sentences[i]}")
+            st.write(f"**Sentiment:** {labels[i].capitalize()}")
+            st.divider()
+    else:
+        st.error("No sentiment results returned")
