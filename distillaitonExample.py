@@ -1,6 +1,6 @@
 import streamlit as st
 import requests
-from bsio import BeautifulSoup
+from bs4 import BeautifulSoup
 import nltk
 import openai
 import re
