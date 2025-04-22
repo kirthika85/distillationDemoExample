@@ -1,15 +1,10 @@
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
-import nltk
-import openai
 import re
+import openai
 
-# Configure NLTK
-nltk.download('punkt')
-nltk.download('punkt_tab')
-
-# Site-specific configurations
+# Site-specific configurations (keep as is)
 SITE_CONFIG = {
     'seekingalpha': {
         'container': {'name': 'div', 'class_': 'article-body'},
@@ -44,6 +39,7 @@ def get_site_config(url):
     return SITE_CONFIG['default']
 
 def scrape_transcript(url):
+    """Scrape transcript from the URL"""
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
         "Accept-Language": "en-US,en;q=0.9",
@@ -72,70 +68,151 @@ def scrape_transcript(url):
         st.error(f"Scraping error: {str(e)}")
         return ""
 
-def analyze_sentiment_gpt4(text, api_key, chunk_size=15):
+def extract_company_info(url, transcript):
+    """Extract company name and quarter from URL and transcript"""
+    # Try to extract from URL
+    company_name = ""
+    if "marketbeat.com/earnings/reports" in url:
+        url_parts = url.split("/")
+        if len(url_parts) > 5:
+            company_info = url_parts[5].replace("-stock", "").replace("-co", "").replace("-inc", "")
+            company_name = company_info.title()
+    
+    # If we couldn't get it from URL, try first few lines of transcript
+    if not company_name and len(transcript) > 200:
+        first_chunk = transcript[:200].lower()
+        common_names = ["apple", "microsoft", "amazon", "google", "alphabet", "meta", "tesla", 
+                       "intel", "amd", "nvidia", "coca-cola", "pepsi", "walmart", "target", 
+                       "johnson & johnson", "pfizer", "merck"]
+        for name in common_names:
+            if name in first_chunk:
+                company_name = name.title()
+                break
+    
+    return company_name
+
+def analyze_overall_sentiment(transcript, api_key, company_name=""):
+    """Analyze the overall sentiment of the transcript using the LLM directly"""
     client = openai.OpenAI(api_key=api_key)
-    sentences = nltk.sent_tokenize(text)
-    all_labels = []
-    for i in range(0, len(sentences), chunk_size):
-        chunk = sentences[i:i+chunk_size]
-        prompt = (
-            "Classify each sentence's sentiment as ONLY positive, negative, or neutral. "
-            "Focus on identifying risks, challenges, and negative business impacts. "
-            "Return EXACTLY a comma-separated list of labels in order. Example: positive, neutral, negative\n\n"
-        )
-        for j, sentence in enumerate(chunk, 1):
-            prompt += f"{j}. {sentence}\n"
+    
+    # If transcript is too long, process it in chunks of 12000 characters
+    max_chunk_size = 12000
+    sentiment_results = []
+    
+    # Create a more specific prompt for financial analysis
+    finance_prompt = f"""You are a financial analyst specializing in earnings call assessment. 
+Analyze the following {company_name} earnings call transcript and determine the OVERALL SENTIMENT.
+
+When analyzing, consider these key factors:
+1. Forward guidance and management outlook
+2. Revenue, profit, and margin trends
+3. Market share and competitive position
+4. Analyst questions and management responses
+5. Any mentions of stock price, market reaction, or valuation
+6. Language around restructuring, layoffs, or cost-cutting
+7. References to macroeconomic challenges or tailwinds
+
+Provide your analysis in this EXACT format:
+1. SENTIMENT: [Positive/Negative/Mixed/Cautiously Positive/Cautiously Negative]
+2. KEY FACTORS: Brief bullet points of the most influential aspects
+3. CONFIDENCE: [High/Medium/Low]
+
+Earnings calls are considered NEGATIVE when they include:
+- Missed targets or lowered guidance
+- Declining metrics or negative growth
+- Defensive management responses
+- Concerns about competition or market challenges
+- Cost-cutting as a primary focus
+- Restructuring or layoffs
+
+Earnings calls are considered POSITIVE when they include:
+- Exceeded expectations and raised guidance
+- Strong growth metrics and expanding margins
+- Confident and forward-looking management comments
+- Market share gains and competitive advantages
+- Innovation and new product success
+
+TRANSCRIPT EXCERPT:
+"""
+    
+    if len(transcript) <= max_chunk_size:
+        # Single chunk analysis
+        full_prompt = finance_prompt + transcript
+        
         try:
             response = client.chat.completions.create(
                 model="gpt-4",
-                messages=[{"role": "user", "content": prompt}],
+                messages=[{"role": "user", "content": full_prompt}],
                 temperature=0.2,
                 max_tokens=500
             )
-            labels = response.choices[0].message.content.split(', ')
-            all_labels.extend(labels)
+            analysis = response.choices[0].message.content
+            sentiment_results.append(analysis)
         except Exception as e:
             st.error(f"OpenAI API error: {e}")
-            return []
-    return all_labels
+            return None
+    else:
+        # Multi-chunk analysis
+        chunks = []
+        # First chunk includes the beginning (often contains important overview)
+        chunks.append(transcript[:max_chunk_size])
+        
+        # Add one or more middle chunks if very long
+        if len(transcript) > max_chunk_size * 2:
+            middle_start = len(transcript) // 2 - max_chunk_size // 2
+            chunks.append(transcript[middle_start:middle_start + max_chunk_size])
+        
+        # Last chunk includes the end (often contains guidance and Q&A)
+        chunks.append(transcript[-max_chunk_size:])
+        
+        for i, chunk in enumerate(chunks):
+            chunk_prompt = finance_prompt + f"\n[CHUNK {i+1} of {len(chunks)}]: " + chunk
+            
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-4",
+                    messages=[{"role": "user", "content": chunk_prompt}],
+                    temperature=0.2,
+                    max_tokens=500
+                )
+                analysis = response.choices[0].message.content
+                sentiment_results.append(analysis)
+            except Exception as e:
+                st.error(f"OpenAI API error on chunk {i+1}: {e}")
+                continue
+    
+    # If we processed multiple chunks, ask LLM to consolidate the results
+    if len(sentiment_results) > 1:
+        consolidation_prompt = f"""As a financial analyst, review these separate analyses of the same {company_name} earnings call and provide a FINAL OVERALL ASSESSMENT.
 
-def get_overall_sentiment(sentiment_counts):
-    """Determine overall sentiment based on sentence-level analysis"""
-    pos = sentiment_counts['positive']
-    neg = sentiment_counts['negative']
-    neu = sentiment_counts['neutral']
-    total = pos + neg + neu
-    
-    if total == 0:
-        return "Unknown"
-    
-    # Rule 1: Absolute count comparison takes priority
-    if neg > pos:
-        if (neg / total) >= 0.25:  # At least 25% negative
-            return "Negative"
-        else:
-            return "Mixed / Leaning Negative"
-    
-    # Rule 2: Positive threshold checks
-    pos_ratio = pos / total
-    if pos_ratio >= 0.4:
-        return "Positive"
-    
-    # Rule 3: Handle high neutral cases
-    if neu / total >= 0.5:  # Majority neutral
-        if neg > pos:
-            return "Mixed / Leaning Negative"
-        elif pos > neg:
-            return "Mixed / Leaning Positive"
-    
-    # Default mixed/neutral cases
-    if pos > neg:
-        return "Mixed / Leaning Positive"
-    elif neg > pos:
-        return "Mixed / Leaning Negative"
-    return "Neutral / Balanced"
+Analysis 1: {sentiment_results[0]}
 
+Analysis 2: {sentiment_results[1]}
 
+{f"Analysis 3: {sentiment_results[2]}" if len(sentiment_results) > 2 else ""}
+
+Based on these analyses, provide your final assessment in this EXACT format:
+1. SENTIMENT: [Positive/Negative/Mixed/Cautiously Positive/Cautiously Negative]
+2. KEY FACTORS: Brief bullet points of the most influential aspects
+3. CONFIDENCE: [High/Medium/Low]
+"""
+        
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": consolidation_prompt}],
+                temperature=0.2,
+                max_tokens=500
+            )
+            final_analysis = response.choices[0].message.content
+            return final_analysis
+        except Exception as e:
+            st.error(f"OpenAI API error during consolidation: {e}")
+            # Return the first analysis if consolidation fails
+            return sentiment_results[0]
+    
+    # If we only had one chunk, return its analysis
+    return sentiment_results[0] if sentiment_results else None
 
 # Streamlit UI
 st.title("Earnings Call Sentiment Analyzer")
@@ -159,41 +236,38 @@ if st.button("Analyze Sentiment"):
     st.subheader("Transcript Preview")
     st.write(transcript[:500] + "...")
 
-    with st.spinner("Analyzing sentiment with GPT-4..."):
-        labels = analyze_sentiment_gpt4(transcript, api_key)
+    # Extract company name for more specific analysis
+    company_name = extract_company_info(url, transcript)
     
-    if labels:
-        sentiment_counts = {
-            "positive": labels.count('positive'),
-            "neutral": labels.count('neutral'),
-            "negative": labels.count('negative')
-        }
-        
-        # Calculate overall sentiment
-        overall_sentiment = get_overall_sentiment(sentiment_counts)
-        
-        # Display results
+    with st.spinner("Analyzing overall sentiment with GPT-4..."):
+        analysis_result = analyze_overall_sentiment(transcript, api_key, company_name)
+    
+    if analysis_result:
         st.subheader("Sentiment Analysis Results")
         
-        # Overall sentiment
-        st.markdown(f"**Overall Sentiment:** {overall_sentiment}")
+        # Parse and display the structured result
+        lines = analysis_result.split('\n')
+        sentiment_line = next((line for line in lines if "SENTIMENT:" in line), "")
         
-        # Metrics
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Positive Sentences", sentiment_counts['positive'])
-        col2.metric("Neutral Sentences", sentiment_counts['neutral'])
-        col3.metric("Negative Sentences", sentiment_counts['negative'])
+        if sentiment_line:
+            # Extract just the sentiment classification
+            sentiment = sentiment_line.split("SENTIMENT:")[1].strip()
+            if any(term in sentiment.lower() for term in ["negative", "cautiously negative"]):
+                sentiment_color = "red"
+            elif any(term in sentiment.lower() for term in ["positive", "cautiously positive"]):
+                sentiment_color = "green"
+            else:
+                sentiment_color = "orange"  # Mixed or other
+            
+            st.markdown(f"### Overall Sentiment: <span style='color:{sentiment_color}'>{sentiment}</span>", unsafe_allow_html=True)
         
-        # Sample analysis
-        st.subheader("Sample Sentence Analysis")
-        sentences = nltk.sent_tokenize(transcript)
-        sample_size = min(5, len(sentences))
-        for i in range(sample_size):
-            st.markdown(f"""
-            **Sentence {i+1}:**  
-            {sentences[i]}  
-            **Sentiment:** {labels[i].capitalize()}
-            """)
-            st.divider()
+        # Display the full analysis with formatting
+        st.markdown("### Detailed Analysis")
+        st.markdown(analysis_result.replace("1. ", "**").replace("2. ", "**").replace("3. ", "**").replace(":", ":**"))
+        
+        # Add a visualization if you want
+        if "SENTIMENT:" in analysis_result:
+            st.markdown("### Key Insights")
+            st.info("This analysis was performed by examining the entire transcript in context, considering financial indicators, guidance, and analyst interactions.")
     else:
         st.error("No sentiment results returned")
