@@ -93,87 +93,58 @@ def extract_company_info(url, transcript):
     return "Company"
 
 def analyze_overall_sentiment(transcript, api_key, company_name=""):
-    """Research-backed financial sentiment analysis with precision tuning"""
+    """Financial-focused sentiment analysis with adjusted thresholds"""
     client = openai.OpenAI(api_key=api_key)
     
-    # Critical negative indicators (S&P Global Market Intelligence, 2023)
+    # Updated negative triggers
     critical_negatives = [
-        "operating loss", "guidance cut", "dividend reduction",
-        "bankruptcy risk", "accounting irregularities"
+        "operating loss", "guidance cut", "margin compression",
+        "challenges", "headwinds", "competitive threats"
     ]
     
-    # Enhanced prompt structure (arXiv:2503.03612)
-    prompt = f"""Analyze {company_name} earnings call transcript:
-        1. **Positive Classification** (require ALL):
-           - EPS beat (actual > estimate)
-           - Revenue beat (actual > estimate)
-           - Raised guidance
-           - Stock price increase mentioned
-        
-        2. **Cautiously Positive** (meet 3/4 above + 1 minor concern):
-           - Supply chain/tariff impacts < 2% revenue
-           - Temporary margin pressure
-           - One-time restructuring costs
-        
-        3. **Cautiously Negative** (miss 2+ key metrics):
-           - EPS/revenue miss
-           - Guidance maintained/lowered
+    prompt = f"""Analyze {company_name} earnings call transcript in JSON :
+        1. **Negative Classification** (require ANY):
+           - EPS/revenue miss + guidance maintained/lowered
            - Stock decline mentioned
+           - Margin compression/competitive threats
         
-        4. **Negative** (miss 3+ metrics OR critical issues):
-           - Operating loss
-           - Dividend cut
-           - Bankruptcy risk
+        2. **Cautiously Negative** (1-2 minor negatives):
+           - Temporary margin pressure
+           - Subscriber growth concerns
         
-        Return JSON:
+        3. **Positive** requires ALL:
+           - EPS/revenue beat + raised guidance + stock rise
+        
         {{
-          "sentiment": "Positive/Cautiously Positive/Neutral/Cautiously Negative/Negative",
+          "sentiment": "Negative/Cautiously Negative/Neutral/Cautiously Positive/Positive",
           "confidence": 0-1,
           "key_factors": [],
           "negative_triggers": []
-        }}
-        
-        Transcript: {transcript[:12000]}"""
+        }}"""
 
     try:
         response = client.chat.completions.create(
             model="gpt-4-turbo",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
-            response_format={"type": "json_object"},
-            max_tokens=500
+            response_format={"type": "json_object"}
         )
         analysis = json.loads(response.choices[0].message.content)
         
-        # Confidence adjustment based on financial NLP research
-        positive_terms = ["beat", "raised", "growth", "record", "increase"]
-        pos_count = sum(transcript.lower().count(t) for t in positive_terms)
-        
-        # Tiered confidence boosting (Medya et al., WWW '22)
-        if pos_count >= 5:
-            analysis["confidence"] = min(analysis.get("confidence", 0) + 0.35, 1.0)
-        elif pos_count >= 3:
-            analysis["confidence"] = min(analysis.get("confidence", 0) + 0.2, 1.0)
-            
-        # Sentiment escalation logic
-        if analysis["sentiment"] == "Cautiously Positive" and analysis["confidence"] >= 0.65:
-            analysis["sentiment"] = "Positive"
-        elif analysis["sentiment"] == "Neutral" and any(t in transcript.lower() for t in ["challenge", "headwind"]):
-            analysis["sentiment"] = "Cautiously Positive"
-        
-        # Critical negative override
-        if any(t in transcript.lower() for t in critical_negatives):
+        # Force Negative if triggers present
+        found_triggers = [t for t in critical_negatives if t in transcript.lower()]
+        if found_triggers:
             analysis.update({
                 "sentiment": "Negative",
-                "confidence": max(analysis.get("confidence", 0), 0.9),
-                "negative_triggers": critical_negatives
+                "confidence": max(analysis.get("confidence", 0), 0.85),
+                "negative_triggers": found_triggers
             })
-            
-        return analysis
         
+        return analysis
     except Exception as e:
         st.error(f"Analysis error: {str(e)}")
         return None
+
 
 # Streamlit UI
 st.title("Earnings Call Analyzer")
