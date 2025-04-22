@@ -199,9 +199,7 @@ if st.button("Analyze"):
     if result:
         color_map = {
             "Negative": "red",
-            "Cautiously Negative": "orange",
-            "Neutral": "gray",
-            "Cautiously Positive": "#90EE90",
+            "Mixed": "gray",
             "Positive": "green"
         }
         
