@@ -93,43 +93,38 @@ def extract_company_info(url, transcript):
     return "Company"
 
 def analyze_overall_sentiment(transcript, api_key, company_name=""):
-    """Precision-tuned financial sentiment analysis"""
+    """Financial sentiment analysis with 3-class system"""
     client = openai.OpenAI(api_key=api_key)
     
-    # Expanded negative triggers (S&P Global Market Intelligence, 2023)
+    # Universal negative triggers (no company-specific terms)
     critical_negatives = [
         "operating loss", "guidance cut", "dividend reduction",
-        "bankruptcy risk", "accounting irregularities", "margin compression",
-        "subscriber decline", "competitive threats"
+        "bankruptcy risk", "margin compression", "stock decline",
+        "subscriber decline", "competitive threats", "market share loss"
     ]
     
-    # Enhanced prompt with explicit factor examples (arXiv:2503.03612)
     prompt = f"""Analyze {company_name} earnings call transcript. Return JSON with:
-1. **Sentiment Classification**:
-   - Positive: 3/4 of: EPS beat, revenue beat, guidance raise, stock rise
-   - Cautiously Positive: 2/4 above + temporary issues
-   - Negative: EPS/revenue miss + guidance cut OR critical risks
+1. **Classification Rules**:
+   - Positive: EPS/revenue beat + raised guidance + stock rise
+   - Mixed: 2/3 positives with 1+ concern OR balanced positives/negatives
+   - Negative: EPS/revenue miss + guidance cut OR 2+ critical risks
 
-2. **Key Factors** (REQUIRE 3-5 specific items):
-   - EPS actual vs estimate (e.g., "$1.49 vs $1.25 expected")
-   - Revenue growth percentage
-   - Guidance changes ("raised to $X-Y from $A-B")
-   - Stock price movement
+2. **Required Key Factors** (3-5 items with numbers):
+   - EPS vs estimate
+   - Revenue growth (YoY/QoQ)
+   - Guidance changes
+   - Stock reaction
    - Margin trends
 
-3. **Examples**:
-   Good: ["EPS beat ($1.49 vs $1.25)", "Revenue up 12% YoY", "Raised FY2025 guidance"]
-   Bad: ["General growth", "Strong performance"]
-
-Transcript: {transcript[:12000]}
-
-JSON Response:
+3. **Response Format**:
 {{
-  "sentiment": "Positive/Cautiously Positive/Mixed/Negative",
+  "sentiment": "Positive/Mixed/Negative",
   "confidence": 0-1,
-  "key_factors": ["Specific factor 1", "Factor 2 with data", ...],
+  "key_factors": ["$1.49 EPS vs $1.25 estimate", ...],
   "negative_triggers": []
-}}"""
+}}
+
+Transcript: {transcript[:12000]}"""
 
     try:
         response = client.chat.completions.create(
@@ -140,42 +135,42 @@ JSON Response:
         )
         analysis = json.loads(response.choices[0].message.content)
 
-        # Confidence boosting and factor validation
-        positive_terms = ["beat", "raised", "growth", "record", "increase", "strong", "above"]
-        pos_count = sum(transcript.lower().count(t) for t in positive_terms)
-        
-        # Tiered confidence adjustment
-        if pos_count >= 4:
-            analysis["confidence"] = min(analysis.get("confidence", 0) + 0.4, 1.0)
-        elif pos_count >= 3:
-            analysis["confidence"] = min(analysis.get("confidence", 0) + 0.25, 1.0)
-        
-        # Force minimum confidence for positive classifications
-        if analysis["sentiment"] == "Positive" and analysis["confidence"] < 0.7:
-            analysis["confidence"] = 0.7
-            
-        # Generate fallback key factors if empty
-        if not analysis.get("key_factors") or len(analysis["key_factors"]) < 2:
-            analysis["key_factors"] = [
-                "EPS performance details",
-                "Revenue growth metrics",
-                "Guidance changes analysis"
-            ]
-        
-        # Critical negative override
+        # Post-processing validation
         found_negatives = [t for t in critical_negatives if t in transcript.lower()]
+        
+        # Force Negative classification if critical triggers found
         if found_negatives:
             analysis.update({
                 "sentiment": "Negative",
                 "confidence": max(analysis.get("confidence", 0), 0.85),
+                "key_factors": analysis.get("key_factors", []) + ["Critical risks detected"],
                 "negative_triggers": found_negatives
             })
+        # Auto-correct Mixed if confidence borderline
+        elif analysis["sentiment"] == "Mixed" and analysis["confidence"] >= 0.7:
+            analysis["sentiment"] = "Negative" if len(found_negatives) >=1 else "Positive"
+
+        # Confidence boosting for clear positives
+        positive_terms = ["beat", "raised", "growth", "record", "increase"]
+        pos_count = sum(transcript.lower().count(t) for t in positive_terms)
         
+        if pos_count >= 4 and "Negative" not in analysis["sentiment"]:
+            analysis["confidence"] = min(analysis.get("confidence", 0) + 0.3, 1.0)
+
+        # Fallback key factors
+        if not analysis.get("key_factors") or len(analysis["key_factors"]) < 2:
+            analysis["key_factors"] = [
+                "EPS/revenue performance analysis",
+                "Guidance changes evaluation",
+                "Market reaction assessment"
+            ]
+
         return analysis
-        
+
     except Exception as e:
         st.error(f"Analysis error: {str(e)}")
         return None
+
 
 # Streamlit UI
 st.title("Earnings Call Analyzer")
