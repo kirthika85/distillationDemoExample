@@ -98,6 +98,33 @@ def analyze_sentiment_gpt4(text, api_key, chunk_size=15):
             return []
     return all_labels
 
+def get_overall_sentiment(sentiment_counts):
+    """Determine overall sentiment based on sentence-level analysis"""
+    pos = sentiment_counts['positive']
+    neg = sentiment_counts['negative']
+    neu = sentiment_counts['neutral']
+    total = pos + neg + neu
+    
+    if total == 0:
+        return "Unknown"
+    
+    pos_ratio = pos / total
+    neg_ratio = neg / total
+    
+    if pos_ratio >= 0.4:  # Strong positive majority
+        if neg_ratio >= 0.3:
+            return "Mixed / Cautiously Positive"
+        return "Positive"
+    elif neg_ratio >= 0.4:  # Strong negative majority
+        if pos_ratio >= 0.3:
+            return "Mixed / Cautiously Negative"
+        return "Negative"
+    else:  # No clear majority
+        if pos > neg:
+            return "Mixed / Leaning Positive"
+        elif neg > pos:
+            return "Mixed / Leaning Negative"
+        return "Neutral / Balanced"
 
 # Streamlit UI
 st.title("Multi-Site Earnings Call Sentiment Analyzer")
@@ -132,17 +159,31 @@ if st.button("Analyze Sentiment"):
             "negative": labels.count('negative')
         }
         
-        st.subheader("Sentiment Distribution")
+        # Calculate overall sentiment
+        overall_sentiment = get_overall_sentiment(sentiment_counts)
+        
+        # Display results
+        st.subheader("Sentiment Analysis Results")
+        
+        # Overall sentiment
+        st.markdown(f"**Overall Sentiment:** {overall_sentiment}")
+        
+        # Metrics
         col1, col2, col3 = st.columns(3)
-        col1.metric("Positive", sentiment_counts['positive'])
-        col2.metric("Neutral", sentiment_counts['neutral'])
-        col3.metric("Negative", sentiment_counts['negative'])
-
-        st.subheader("Sample Analysis")
+        col1.metric("Positive Sentences", sentiment_counts['positive'])
+        col2.metric("Neutral Sentences", sentiment_counts['neutral'])
+        col3.metric("Negative Sentences", sentiment_counts['negative'])
+        
+        # Sample analysis
+        st.subheader("Sample Sentence Analysis")
         sentences = nltk.sent_tokenize(transcript)
-        for i in range(min(3, len(sentences))):
-            st.write(f"**Sentence {i+1}:** {sentences[i]}")
-            st.write(f"**Sentiment:** {labels[i].capitalize()}")
+        sample_size = min(5, len(sentences))
+        for i in range(sample_size):
+            st.markdown(f"""
+            **Sentence {i+1}:**  
+            {sentences[i]}  
+            **Sentiment:** {labels[i].capitalize()}
+            """)
             st.divider()
     else:
         st.error("No sentiment results returned")
