@@ -80,6 +80,7 @@ def analyze_sentiment_gpt4(text, api_key, chunk_size=15):
         chunk = sentences[i:i+chunk_size]
         prompt = (
             "Classify each sentence's sentiment as ONLY positive, negative, or neutral. "
+            "Focus on identifying risks, challenges, and negative business impacts. "
             "Return EXACTLY a comma-separated list of labels in order. Example: positive, neutral, negative\n\n"
         )
         for j, sentence in enumerate(chunk, 1):
@@ -108,24 +109,32 @@ def get_overall_sentiment(sentiment_counts):
     if total == 0:
         return "Unknown"
     
-    pos_ratio = pos / total
-    neg_ratio = neg / total
-    
-    # Adjusted thresholds for negative classification (from 0.4 to 0.35)
-    if pos_ratio >= 0.4:  # Strong positive majority
-        if neg_ratio >= 0.25:  # More sensitive to negative presence
-            return "Mixed / Cautiously Positive"
-        return "Positive"
-    elif neg_ratio >= 0.35:  # Lowered threshold for negative classification (was 0.4)
-        if pos_ratio >= 0.25:
-            return "Mixed / Cautiously Negative"
-        return "Negative"  # Now catches cases like Intel
-    else:  # No clear majority
-        if pos > neg:
-            return "Mixed / Leaning Positive"
-        elif neg > pos:
+    # Rule 1: Absolute count comparison takes priority
+    if neg > pos:
+        if (neg / total) >= 0.25:  # At least 25% negative
+            return "Negative"
+        else:
             return "Mixed / Leaning Negative"
-        return "Neutral / Balanced"
+    
+    # Rule 2: Positive threshold checks
+    pos_ratio = pos / total
+    if pos_ratio >= 0.4:
+        return "Positive"
+    
+    # Rule 3: Handle high neutral cases
+    if neu / total >= 0.5:  # Majority neutral
+        if neg > pos:
+            return "Mixed / Leaning Negative"
+        elif pos > neg:
+            return "Mixed / Leaning Positive"
+    
+    # Default mixed/neutral cases
+    if pos > neg:
+        return "Mixed / Leaning Positive"
+    elif neg > pos:
+        return "Mixed / Leaning Negative"
+    return "Neutral / Balanced"
+
 
 
 # Streamlit UI
