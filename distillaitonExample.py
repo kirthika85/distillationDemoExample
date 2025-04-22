@@ -121,7 +121,9 @@ def analyze_overall_sentiment(transcript, api_key, company_name=""):
           "confidence": 0-1,
           "key_factors": ["GAAP vs non-GAAP results", "Guidance changes", "Liquidity position"],
           "negative_triggers": []
-        }}"""
+        }}
+        
+        Transcript: {transcript}"""  # Removed truncation
 
     try:
         response = client.chat.completions.create(
@@ -142,17 +144,6 @@ def analyze_overall_sentiment(transcript, api_key, company_name=""):
                 "confidence": max(analysis.get("confidence", 0), 0.9),
                 "negative_triggers": found_negatives
             })
-        else:
-            # Mixed Validation (Only if no critical negatives)
-            pos_terms = ["beat", "growth", "record", "increase", "raised"]
-            neg_terms = ["miss", "decline", "pressure", "uncertainty", "challenge"]
-            
-            pos_count = sum(transcript.lower().count(t) for t in pos_terms)
-            neg_count = sum(transcript.lower().count(t) for t in neg_terms)
-            
-            if pos_count >= 3 and neg_count >= 3:
-                analysis["sentiment"] = "Mixed"
-                analysis["confidence"] = min(max(analysis.get("confidence", 0), 0.6), 0.8)
 
         return analysis
 
