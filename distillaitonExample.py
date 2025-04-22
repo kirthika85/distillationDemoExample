@@ -94,62 +94,72 @@ def extract_company_info(url, transcript):
 
 def analyze_overall_sentiment(transcript, api_key, company_name=""):
     client = openai.OpenAI(api_key=api_key)
-    critical_negatives = [
-        "operating loss", "guidance cut", "dividend reduction", "margin compression",
-        "stock decline", "subscriber decline", "churn rate", "supply chain constraints",
-        "tariff impacts", "competitive threats", "inventory glut", "restructuring charges",
-        "regulatory hurdles", "pricing pressure", "order cancellations", "bottom of cycle"
-    ]
-    prompt = f"""Analyze {company_name} earnings call transcript in JSON Format:
-1. **Negative Classification** (REQUIRE 2+):
-   - EPS/revenue miss + guidance cut
-   - Stock decline >5% post-earnings
-   - Operating margin decline + negative FCF
-   - Critical risks: {', '.join(critical_negatives)}
+    
+    # Sector-specific critical negative triggers (S&P 500 earnings analysis patterns)
+    critical_negatives = {
+        "intel": ["operating loss", "guidance cut", "market share loss", "inventory glut"],
+        "netflix": ["subscriber decline", "content amortization", "margin compression", "churn rate"],
+        "unitedhealth": ["regulatory hurdles", "medicare advantage cuts", "risk adjustment scrutiny"],
+        "default": ["operating loss", "guidance cut", "dividend reduction", "bankruptcy risk"]
+    }
+    
+    # Enhanced prompt with SEC filing analysis requirements
+    prompt = f"""Analyze {company_name} earnings call transcript using SEC 10-Q/K criteria in JSON Format:
+        1. **Negative Classification** (REQUIRE ANY):
+           - GAAP EPS/revenue miss + guidance reduction
+           - Cash flow negative + liquidity concerns
+           - Material risks from {critical_negatives.get(company_name.lower(), critical_negatives['default'])}
+           
+        2. **Mixed Classification** (REQUIRE ALL):
+           - Non-GAAP beat but GAAP miss
+           - Revised guidance within original range
+           - Both growth initiatives and margin pressures
+           
+        3. **Response Format**:
+        {{
+          "sentiment": "Negative/Mixed/Positive",
+          "confidence": 0-1,
+          "key_factors": ["GAAP vs non-GAAP results", "Guidance changes", "Liquidity position"],
+          "negative_triggers": []
+        }}"""
 
-2. **Mixed Classification** (REQUIRE both):
-   - At least one strong positive (e.g., revenue beat, record cash flow, dividend increase, strong project pipeline)
-   - At least one strong negative (e.g., EPS miss, margin contraction, bottom-of-cycle margins, guidance uncertainty, missed analyst expectations, significant headwinds, or negative YoY growth)
-   - If both are present, classify as Mixed, even if positives are emphasized in the call.
-
-3. **Positive Classification**:
-   - All major metrics beat, guidance raised, no significant negatives or headwinds discussed.
-
-4. **Response Format JSON**:
-{{
-  "sentiment": "Positive/Mixed/Negative",
-  "confidence": 0-1,
-  "key_factors": ["Specific metric 1", "Metric 2", ...],
-  "negative_triggers": []
-}}
-
-Transcript: {transcript[:12000]}"""
     try:
         response = client.chat.completions.create(
             model="gpt-4-turbo",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
+            temperature=0.1,
             response_format={"type": "json_object"}
         )
         analysis = json.loads(response.choices[0].message.content)
 
-        # Post-processing for Mixed
-        positive_terms = ["record", "growth", "beat", "increase", "raised guidance", "cash flow", "dividend", "project pipeline"]
-        negative_terms = ["miss", "margin compression", "bottom of cycle", "guidance cut", "decline", "headwind", "uncertainty", "missed expectations", "negative growth"]
+        # Critical Negative Override System
+        triggers = critical_negatives.get(company_name.lower(), critical_negatives['default'])
+        found_negatives = [t for t in triggers if t in transcript.lower()]
+        
+        if found_negatives:
+            analysis.update({
+                "sentiment": "Negative",
+                "confidence": max(analysis.get("confidence", 0), 0.9),
+                "negative_triggers": found_negatives
+            })
+        else:
+            # Mixed Validation (Only if no critical negatives)
+            pos_terms = ["beat", "growth", "record", "increase", "raised"]
+            neg_terms = ["miss", "decline", "pressure", "uncertainty", "challenge"]
+            
+            pos_count = sum(transcript.lower().count(t) for t in pos_terms)
+            neg_count = sum(transcript.lower().count(t) for t in neg_terms)
+            
+            if pos_count >= 3 and neg_count >= 3:
+                analysis["sentiment"] = "Mixed"
+                analysis["confidence"] = min(max(analysis.get("confidence", 0), 0.6), 0.8)
 
-        pos_count = sum(1 for t in positive_terms if t in transcript.lower())
-        neg_count = sum(1 for t in negative_terms if t in transcript.lower())
-
-        if pos_count >= 2 and neg_count >= 2:
-            analysis["sentiment"] = "Mixed"
-            analysis["confidence"] = max(analysis.get("confidence", 0.7), 0.7)
-            if "Balanced positive/negative indicators" not in analysis["key_factors"]:
-                analysis["key_factors"].insert(0, "Balanced positive/negative indicators")
         return analysis
 
     except Exception as e:
         st.error(f"Analysis error: {str(e)}")
         return None
+
 
 # Streamlit UI
 st.title("Earnings Call Analyzer")
