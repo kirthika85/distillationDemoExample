@@ -111,20 +111,22 @@ def get_overall_sentiment(sentiment_counts):
     pos_ratio = pos / total
     neg_ratio = neg / total
     
+    # Adjusted thresholds for negative classification (from 0.4 to 0.35)
     if pos_ratio >= 0.4:  # Strong positive majority
-        if neg_ratio >= 0.3:
+        if neg_ratio >= 0.25:  # More sensitive to negative presence
             return "Mixed / Cautiously Positive"
         return "Positive"
-    elif neg_ratio >= 0.4:  # Strong negative majority
-        if pos_ratio >= 0.3:
+    elif neg_ratio >= 0.35:  # Lowered threshold for negative classification (was 0.4)
+        if pos_ratio >= 0.25:
             return "Mixed / Cautiously Negative"
-        return "Negative"
+        return "Negative"  # Now catches cases like Intel
     else:  # No clear majority
         if pos > neg:
             return "Mixed / Leaning Positive"
         elif neg > pos:
             return "Mixed / Leaning Negative"
         return "Neutral / Balanced"
+
 
 # Streamlit UI
 st.title("Multi-Site Earnings Call Sentiment Analyzer")
