@@ -216,5 +216,3 @@ if st.button("Analyze"):
         </div>
         """, unsafe_allow_html=True)
         
-        st.subheader("Transcript Preview")
-        st.write(transcript[:1000] + "...")
