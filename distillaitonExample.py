@@ -129,11 +129,10 @@ def get_overall_sentiment(sentiment_counts):
 
 
 # Streamlit UI
-st.title("Multi-Site Earnings Call Sentiment Analyzer")
+st.title("Earnings Call Sentiment Analyzer")
 
-url = st.text_input("Enter transcript URL:", 
-                   value="https://www.investing.com/news/transcripts/earnings-call-transcript-badger-meter-q1-2025-beats-earnings-expectations-93CH-3991443")
-
+url = st.text_input("Enter transcript URL:")
+                  
 if st.button("Analyze Sentiment"):
     if not url:
         st.warning("Please enter a transcript URL.")
