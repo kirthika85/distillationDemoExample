@@ -3,8 +3,9 @@ import requests
 from bs4 import BeautifulSoup
 import re
 import openai
+import json
 
-# Site-specific configurations (keep as is)
+# Site-specific configurations
 SITE_CONFIG = {
     'seekingalpha': {
         'container': {'name': 'div', 'class_': 'article-body'},
@@ -69,203 +70,133 @@ def scrape_transcript(url):
         return ""
 
 def extract_company_info(url, transcript):
-    """Extract company name and quarter from URL and transcript"""
-    # Try to extract from URL
-    company_name = ""
+    """Improved company name extraction"""
+    # From URL
     if "marketbeat.com/earnings/reports" in url:
-        url_parts = url.split("/")
-        if len(url_parts) > 5:
-            company_info = url_parts[5].replace("-stock", "").replace("-co", "").replace("-inc", "")
-            company_name = company_info.title()
+        parts = url.split("/")
+        if len(parts) > 5:
+            return parts[5].replace("-stock", "").replace("-co", "").replace("-inc", "").title()
     
-    # If we couldn't get it from URL, try first few lines of transcript
-    if not company_name and len(transcript) > 200:
-        first_chunk = transcript[:200].lower()
-        common_names = ["apple", "microsoft", "amazon", "google", "alphabet", "meta", "tesla", 
-                       "intel", "amd", "nvidia", "coca-cola", "pepsi", "walmart", "target", 
-                       "johnson & johnson", "pfizer", "merck"]
-        for name in common_names:
-            if name in first_chunk:
-                company_name = name.title()
-                break
+    # From transcript content
+    first_200 = transcript[:200].lower()
+    patterns = {
+        "Intel": r"\bintel\b",
+        "Microsoft": r"\bmicrosoft\b",
+        "Apple": r"\bapple\b",
+        "Tesla": r"\btesla\b"
+    }
     
-    return company_name
+    for name, pattern in patterns.items():
+        if re.search(pattern, first_200):
+            return name
+    
+    return "Company"
 
 def analyze_overall_sentiment(transcript, api_key, company_name=""):
-    """Analyze the overall sentiment of the transcript using the LLM directly"""
+    """Financial-focused sentiment analysis"""
     client = openai.OpenAI(api_key=api_key)
     
-    # If transcript is too long, process it in chunks of 12000 characters
-    max_chunk_size = 12000
-    sentiment_results = []
+    negative_triggers = [
+        "stock fell", "stock declined", "lowered guidance", "below expectations",
+        "margin compression", "headwinds", "restructuring", "cost cutting",
+        "challenges", "uncertainty", "operating loss", "write-down", "downgrade"
+    ]
     
-    # Create a more specific prompt for financial analysis
-    finance_prompt = f"""You are a SKEPTICAL financial analyst specializing in earnings calls. 
-        Analyze the following {company_name} earnings call transcript and determine the OVERALL SENTIMENT.
+    prompt = f"""As a FINANCIAL ANALYST, analyze this {company_name} earnings call transcript.
+Focus on these KEY FACTORS (weighted importance):
+1. Forward guidance (40%) 
+2. Margin trends (25%)
+3. Market reaction (20%)
+4. Analyst Q&A tone (15%)
 
-        IMPORTANT: Be aware that companies attempt to present positive spins on negative results. Weight forward guidance and market reactions MORE HEAVILY than past performance claims.
+CLASSIFY AS NEGATIVE IF ANY:
+- Guidance below expectations
+- Negative market reaction
+- Margin pressure
+- Defensive Q&A
+- Cost-cutting focus
 
-        When analyzing, consider these key factors IN ORDER OF IMPORTANCE:
-        1. Forward guidance and management outlook for FUTURE performance (HIGHEST IMPORTANCE)
-        2. Stock price reaction after the call (if mentioned)
-        3. Margin trends and profit metrics (not just revenue)
-        4. Defensive or evasive language in analyst Q&A
-        5. Cost-cutting, restructuring, or efficiency language
-        6. Competitive threats and market share concerns
-        7. Past performance metrics (LOWEST IMPORTANCE)
-        
-        Provide your analysis in this EXACT format:
-        1. SENTIMENT: [Positive/Negative/Mixed/Cautiously Positive/Cautiously Negative]
-        2. KEY FACTORS: Brief bullet points of the most influential aspects
-        3. CONFIDENCE: [High/Medium/Low]
-        
-        Earnings calls should be classified as NEGATIVE when they include ANY of these:
-        - Forward guidance that is flat, cautious, or below analyst expectations
-        - Stock price declining after earnings release
-        - Management focusing on "long-term" over immediate results
-        - Defensive or hesitant responses to analyst questions
-        - Discussions of "challenges," "headwinds," or "difficult environment"
-        - Cost optimization, restructuring, or efficiency as major themes
-        - Operating losses or margin pressure, even with revenue growth
-        - Transition periods or significant investments with uncertain payoffs
-        
-        TRANSCRIPT EXCERPT:
-        """
+FORMAT (STRICT JSON):
+{{
+  "sentiment": "Negative/Cautiously Negative/Neutral/Cautiously Positive/Positive",
+  "confidence": 0-1,
+  "key_factors": ["list","of","factors"],
+  "negative_triggers": ["list","of","detected_triggers"]
+}}
 
-    
-    if len(transcript) <= max_chunk_size:
-        # Single chunk analysis
-        full_prompt = finance_prompt + transcript
-        
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4",
-                messages=[{"role": "user", "content": full_prompt}],
-                temperature=0.2,
-                max_tokens=500
-            )
-            analysis = response.choices[0].message.content
-            sentiment_results.append(analysis)
-        except Exception as e:
-            st.error(f"OpenAI API error: {e}")
-            return None
-    else:
-        # Multi-chunk analysis
-        chunks = []
-        # First chunk includes the beginning (often contains important overview)
-        chunks.append(transcript[:max_chunk_size])
-        
-        # Add one or more middle chunks if very long
-        if len(transcript) > max_chunk_size * 2:
-            middle_start = len(transcript) // 2 - max_chunk_size // 2
-            chunks.append(transcript[middle_start:middle_start + max_chunk_size])
-        
-        # Last chunk includes the end (often contains guidance and Q&A)
-        chunks.append(transcript[-max_chunk_size:])
-        
-        for i, chunk in enumerate(chunks):
-            chunk_prompt = finance_prompt + f"\n[CHUNK {i+1} of {len(chunks)}]: " + chunk
-            
-            try:
-                response = client.chat.completions.create(
-                    model="gpt-4",
-                    messages=[{"role": "user", "content": chunk_prompt}],
-                    temperature=0.2,
-                    max_tokens=500
-                )
-                analysis = response.choices[0].message.content
-                sentiment_results.append(analysis)
-            except Exception as e:
-                st.error(f"OpenAI API error on chunk {i+1}: {e}")
-                continue
-    
-    # If we processed multiple chunks, ask LLM to consolidate the results
-    if len(sentiment_results) > 1:
-        consolidation_prompt = f"""As a financial analyst, review these separate analyses of the same {company_name} earnings call and provide a FINAL OVERALL ASSESSMENT.
+TRANSCRIPT:
+{transcript[:12000]}"""
 
-Analysis 1: {sentiment_results[0]}
-
-Analysis 2: {sentiment_results[1]}
-
-{f"Analysis 3: {sentiment_results[2]}" if len(sentiment_results) > 2 else ""}
-
-Based on these analyses, provide your final assessment in this EXACT format:
-1. SENTIMENT: [Positive/Negative/Mixed/Cautiously Positive/Cautiously Negative]
-2. KEY FACTORS: Brief bullet points of the most influential aspects
-3. CONFIDENCE: [High/Medium/Low]
-"""
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            response_format={"type": "json_object"},
+            max_tokens=500
+        )
+        analysis = json.loads(response.choices[0].message.content)
         
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4",
-                messages=[{"role": "user", "content": consolidation_prompt}],
-                temperature=0.2,
-                max_tokens=500
-            )
-            final_analysis = response.choices[0].message.content
-            return final_analysis
-        except Exception as e:
-            st.error(f"OpenAI API error during consolidation: {e}")
-            # Return the first analysis if consolidation fails
-            return sentiment_results[0]
-    
-    # If we only had one chunk, return its analysis
-    return sentiment_results[0] if sentiment_results else None
+        # Post-process validation
+        found_triggers = [t for t in negative_triggers if t in transcript.lower()]
+        if found_triggers:
+            if analysis["sentiment"] not in ["Negative", "Cautiously Negative"]:
+                analysis = {
+                    "sentiment": "Negative",
+                    "confidence": max(analysis["confidence"], 0.9),
+                    "key_factors": analysis["key_factors"] + ["Auto-detected triggers"],
+                    "negative_triggers": found_triggers
+                }
+        
+        return analysis
+        
+    except Exception as e:
+        st.error(f"API Error: {str(e)}")
+        return None
 
 # Streamlit UI
-st.title("Earnings Call Sentiment Analyzer")
+st.title("Financial Earnings Call Analyzer")
 
-url = st.text_input("Enter transcript URL:")
-                  
-if st.button("Analyze Sentiment"):
+url = st.text_input("Enter Transcript URL:", 
+                   placeholder="https://www.marketbeat.com/earnings/reports/...")
+
+if st.button("Analyze"):
     if not url:
-        st.warning("Please enter a transcript URL.")
+        st.warning("Please enter a valid URL")
         st.stop()
-
-    api_key = st.secrets.get("OPENAI_API_KEY", "your-api-key-here")
-
+        
+    api_key = st.secrets.get("OPENAI_API_KEY")
+    
     with st.spinner("Scraping transcript..."):
         transcript = scrape_transcript(url)
-    
-    if not transcript:
-        st.error("Failed to extract transcript. Site structure may have changed.")
-        st.stop()
-
-    st.subheader("Transcript Preview")
-    st.write(transcript[:500] + "...")
-
-    # Extract company name for more specific analysis
+        if not transcript:
+            st.error("Transcript extraction failed")
+            st.stop()
+            
     company_name = extract_company_info(url, transcript)
     
-    with st.spinner("Analyzing overall sentiment with GPT-4..."):
-        analysis_result = analyze_overall_sentiment(transcript, api_key, company_name)
-    
-    if analysis_result:
-        st.subheader("Sentiment Analysis Results")
+    with st.spinner("Analyzing financial sentiment..."):
+        result = analyze_overall_sentiment(transcript, api_key, company_name)
         
-        # Parse and display the structured result
-        lines = analysis_result.split('\n')
-        sentiment_line = next((line for line in lines if "SENTIMENT:" in line), "")
+    if result:
+        color_map = {
+            "Negative": "red",
+            "Cautiously Negative": "orange",
+            "Neutral": "gray",
+            "Cautiously Positive": "#90EE90",
+            "Positive": "green"
+        }
         
-        if sentiment_line:
-            # Extract just the sentiment classification
-            sentiment = sentiment_line.split("SENTIMENT:")[1].strip()
-            if any(term in sentiment.lower() for term in ["negative", "cautiously negative"]):
-                sentiment_color = "red"
-            elif any(term in sentiment.lower() for term in ["positive", "cautiously positive"]):
-                sentiment_color = "green"
-            else:
-                sentiment_color = "orange"  # Mixed or other
-            
-            st.markdown(f"### Overall Sentiment: <span style='color:{sentiment_color}'>{sentiment}</span>", unsafe_allow_html=True)
+        st.subheader("Analysis Results")
+        st.markdown(f"""
+        <div style='border-left: 5px solid {color_map[result["sentiment"]]}; padding: 1rem;'>
+            <h3 style='color:{color_map[result["sentiment"]]};'>{result["sentiment"]}</h3>
+            <p>Confidence: {result['confidence']*100:.0f}%</p>
+            <p><b>Key Factors:</b></p>
+            <ul>{"".join([f"<li>{f}</li>" for f in result['key_factors']])}</ul>
+            {f"<p><b>Negative Triggers:</b> {', '.join(result['negative_triggers'])}</p>" if result['negative_triggers'] else ""}
+        </div>
+        """, unsafe_allow_html=True)
         
-        # Display the full analysis with formatting
-        st.markdown("### Detailed Analysis")
-        st.markdown(analysis_result.replace("1. ", "**").replace("2. ", "**").replace("3. ", "**").replace(":", ":**"))
-        
-        # Add a visualization if you want
-        if "SENTIMENT:" in analysis_result:
-            st.markdown("### Key Insights")
-            st.info("This analysis was performed by examining the entire transcript in context, considering financial indicators, guidance, and analyst interactions.")
-    else:
-        st.error("No sentiment results returned")
+        st.subheader("Transcript Preview")
+        st.write(transcript[:1000] + "...")
