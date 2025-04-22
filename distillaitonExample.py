@@ -105,7 +105,7 @@ def analyze_overall_sentiment(transcript, api_key, company_name=""):
     ]
     
     # Research-based prompt (KPMG Financial NLP Guidelines)
-    prompt = f"""Analyze {company_name} earnings call transcript:
+    prompt = f"""Analyze {company_name} earnings call transcript in JSON Format:
 1. **Negative Classification** (REQUIRE 2+):
    - EPS/revenue miss + guidance cut
    - Stock decline >5% post-earnings
@@ -118,7 +118,7 @@ def analyze_overall_sentiment(transcript, api_key, company_name=""):
    - Stock rise BUT lowered guidance
    - Strong cash flow BUT high capex
 
-3. **Response Format**:
+3. **Response Format JSON**:
 {{
   "sentiment": "Positive/Mixed/Negative",
   "confidence": 0-1,
