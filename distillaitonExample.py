@@ -96,14 +96,14 @@ def analyze_overall_sentiment(transcript, api_key, company_name=""):
     """Research-backed financial sentiment analysis"""
     client = openai.OpenAI(api_key=api_key)
     
-    # Critical negative indicators only (Hansen & Kazinnik, 2023)
+    # Critical negative indicators only 
     critical_negatives = [
         "operating loss", "guidance cut", "dividend reduction",
         "bankruptcy risk", "accounting irregularities"
     ]
     
     # Explicit prompt structure (Kirtac & Germano, 2024a)
-    prompt = f"""Analyze {company_name} earnings call transcript:
+    prompt = f"""Analyze {company_name} earnings call transcript and return JSON format:
         1. **Positive Classification Requires**:
            - EPS beat (actual > estimate)
            - Revenue beat (actual > estimate)
@@ -114,7 +114,7 @@ def analyze_overall_sentiment(transcript, api_key, company_name=""):
            - Use ONLY if 2+ key metrics missed
            - Ignore supply chain/tariff mentions unless impacting guidance
         
-        3. **Response Format**:
+        3. **Response Format (JSON)**:
         {{
           "sentiment": "Positive/Cautiously Positive/Neutral/Cautiously Negative/Negative",
           "confidence": 0-1,
