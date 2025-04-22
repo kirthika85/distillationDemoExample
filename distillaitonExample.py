@@ -125,7 +125,7 @@ Transcript: {transcript[:12000]}
 
 JSON Response:
 {{
-  "sentiment": "Positive/Cautiously Positive/Neutral/Cautiously Negative/Negative",
+  "sentiment": "Positive/Cautiously Positive/Mixed/Negative",
   "confidence": 0-1,
   "key_factors": ["Specific factor 1", "Factor 2 with data", ...],
   "negative_triggers": []
