@@ -132,10 +132,10 @@ TRANSCRIPT:
             model="gpt-4",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
-            response_format={"type": "json_object"},
             max_tokens=500
         )
-        analysis = json.loads(response.choices[0].message.content)
+        raw_output = response.choices[0].message.content
+        analysis = json.loads(raw_output)
         
         # Post-process validation
         found_triggers = [t for t in negative_triggers if t in transcript.lower()]
