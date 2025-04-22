@@ -155,7 +155,7 @@ TRANSCRIPT:
         return None
 
 # Streamlit UI
-st.title("Financial Earnings Call Analyzer")
+st.title("Earnings Call Analyzer")
 
 url = st.text_input("Enter Transcript URL:", 
                    placeholder="https://www.marketbeat.com/earnings/reports/...")
