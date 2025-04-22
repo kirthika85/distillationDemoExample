@@ -100,40 +100,38 @@ def analyze_overall_sentiment(transcript, api_key, company_name=""):
     sentiment_results = []
     
     # Create a more specific prompt for financial analysis
-    finance_prompt = f"""You are a financial analyst specializing in earnings call assessment. 
-Analyze the following {company_name} earnings call transcript and determine the OVERALL SENTIMENT.
+    finance_prompt = f"""You are a SKEPTICAL financial analyst specializing in earnings calls. 
+        Analyze the following {company_name} earnings call transcript and determine the OVERALL SENTIMENT.
 
-When analyzing, consider these key factors:
-1. Forward guidance and management outlook
-2. Revenue, profit, and margin trends
-3. Market share and competitive position
-4. Analyst questions and management responses
-5. Any mentions of stock price, market reaction, or valuation
-6. Language around restructuring, layoffs, or cost-cutting
-7. References to macroeconomic challenges or tailwinds
+        IMPORTANT: Be aware that companies attempt to present positive spins on negative results. Weight forward guidance and market reactions MORE HEAVILY than past performance claims.
 
-Provide your analysis in this EXACT format:
-1. SENTIMENT: [Positive/Negative/Mixed/Cautiously Positive/Cautiously Negative]
-2. KEY FACTORS: Brief bullet points of the most influential aspects
-3. CONFIDENCE: [High/Medium/Low]
+        When analyzing, consider these key factors IN ORDER OF IMPORTANCE:
+        1. Forward guidance and management outlook for FUTURE performance (HIGHEST IMPORTANCE)
+        2. Stock price reaction after the call (if mentioned)
+        3. Margin trends and profit metrics (not just revenue)
+        4. Defensive or evasive language in analyst Q&A
+        5. Cost-cutting, restructuring, or efficiency language
+        6. Competitive threats and market share concerns
+        7. Past performance metrics (LOWEST IMPORTANCE)
+        
+        Provide your analysis in this EXACT format:
+        1. SENTIMENT: [Positive/Negative/Mixed/Cautiously Positive/Cautiously Negative]
+        2. KEY FACTORS: Brief bullet points of the most influential aspects
+        3. CONFIDENCE: [High/Medium/Low]
+        
+        Earnings calls should be classified as NEGATIVE when they include ANY of these:
+        - Forward guidance that is flat, cautious, or below analyst expectations
+        - Stock price declining after earnings release
+        - Management focusing on "long-term" over immediate results
+        - Defensive or hesitant responses to analyst questions
+        - Discussions of "challenges," "headwinds," or "difficult environment"
+        - Cost optimization, restructuring, or efficiency as major themes
+        - Operating losses or margin pressure, even with revenue growth
+        - Transition periods or significant investments with uncertain payoffs
+        
+        TRANSCRIPT EXCERPT:
+        """
 
-Earnings calls are considered NEGATIVE when they include:
-- Missed targets or lowered guidance
-- Declining metrics or negative growth
-- Defensive management responses
-- Concerns about competition or market challenges
-- Cost-cutting as a primary focus
-- Restructuring or layoffs
-
-Earnings calls are considered POSITIVE when they include:
-- Exceeded expectations and raised guidance
-- Strong growth metrics and expanding margins
-- Confident and forward-looking management comments
-- Market share gains and competitive advantages
-- Innovation and new product success
-
-TRANSCRIPT EXCERPT:
-"""
     
     if len(transcript) <= max_chunk_size:
         # Single chunk analysis
