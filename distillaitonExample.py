@@ -199,9 +199,11 @@ if st.button("Analyze"):
     if result:
         color_map = {
             "Negative": "red",
-            "Mixed": "gray",
+            "Mixed": "orange",
             "Positive": "green"
         }
+        sentiment = result.get("sentiment", "Unavailable")
+        sentiment_color = color_map.get(sentiment, "gray")
         
         st.subheader("Analysis Results")
         st.markdown(f"""
