@@ -131,7 +131,7 @@ def analyze_overall_sentiment(transcript, api_key, company_name=""):
             response_format={"type": "json_object"}
         )
         analysis = json.loads(response.choices[0].message.content)
-        
+
         # Confidence boost for strong fundamentals (Medya et al., WWW '22)
         positive_terms = ["beat", "raised", "growth", "record"]
         pos_count = sum(transcript.lower().count(t) for t in positive_terms)
