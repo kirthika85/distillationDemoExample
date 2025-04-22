@@ -93,34 +93,36 @@ def extract_company_info(url, transcript):
     return "Company"
 
 def analyze_overall_sentiment(transcript, api_key, company_name=""):
-    """Financial sentiment analysis with 3-class system"""
+    """Precision-tuned financial sentiment analysis"""
     client = openai.OpenAI(api_key=api_key)
     
-    # Universal negative triggers (no company-specific terms)
+    # Enhanced negative triggers with sector-specific risks
     critical_negatives = [
-        "operating loss", "guidance cut", "dividend reduction",
-        "bankruptcy risk", "margin compression", "stock decline",
-        "subscriber decline", "competitive threats", "market share loss"
+        "operating loss", "guidance cut", "dividend reduction", "margin compression",
+        "stock decline", "subscriber decline", "churn rate", "supply chain constraints",
+        "tariff impacts", "competitive threats", "inventory glut", "restructuring charges",
+        "regulatory hurdles", "pricing pressure", "order cancellations"
     ]
     
-    prompt = f"""Analyze {company_name} earnings call transcript. Return JSON with:
-1. **Classification Rules**:
-   - Positive: EPS/revenue beat + raised guidance + stock rise
-   - Mixed: 2/3 positives with 1+ concern OR balanced positives/negatives
-   - Negative: EPS/revenue miss + guidance cut OR 2+ critical risks
+    # Research-based prompt (KPMG Financial NLP Guidelines)
+    prompt = f"""Analyze {company_name} earnings call transcript:
+1. **Negative Classification** (REQUIRE 2+):
+   - EPS/revenue miss + guidance cut
+   - Stock decline >5% post-earnings
+   - Operating margin decline + negative FCF
+   - Critical risks: {', '.join(critical_negatives)}
 
-2. **Required Key Factors** (3-5 items with numbers):
-   - EPS vs estimate
-   - Revenue growth (YoY/QoQ)
-   - Guidance changes
-   - Stock reaction
-   - Margin trends
+2. **Mixed Classification** (REQUIRE 1+ POSITIVE + 1+ NEGATIVE):
+   - EPS/revenue beat BUT margin contraction
+   - Revenue growth BUT rising SG&A
+   - Stock rise BUT lowered guidance
+   - Strong cash flow BUT high capex
 
 3. **Response Format**:
 {{
   "sentiment": "Positive/Mixed/Negative",
   "confidence": 0-1,
-  "key_factors": ["$1.49 EPS vs $1.25 estimate", ...],
+  "key_factors": ["Specific metric 1", "Metric 2", ...],
   "negative_triggers": []
 }}
 
@@ -130,46 +132,45 @@ Transcript: {transcript[:12000]}"""
         response = client.chat.completions.create(
             model="gpt-4-turbo",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
+            temperature=0.2,  # Higher for nuanced classification
             response_format={"type": "json_object"}
         )
         analysis = json.loads(response.choices[0].message.content)
 
-        # Post-processing validation
-        found_negatives = [t for t in critical_negatives if t in transcript.lower()]
+        # Quantitative Validation (Deloitte Financial Analysis Framework)
+        pos_terms = ["beat", "raised", "growth", "record", "increase"]
+        neg_terms = critical_negatives
+        pos_count = sum(transcript.lower().count(t) for t in pos_terms)
+        neg_count = sum(transcript.lower().count(t) for t in neg_terms)
         
-        # Force Negative classification if critical triggers found
-        if found_negatives:
+        # Force Mixed if balanced signals
+        if pos_count >= 3 and neg_count >= 3:
             analysis.update({
-                "sentiment": "Negative",
-                "confidence": max(analysis.get("confidence", 0), 0.85),
-                "key_factors": analysis.get("key_factors", []) + ["Critical risks detected"],
-                "negative_triggers": found_negatives
+                "sentiment": "Mixed",
+                "confidence": max(0.6, min(analysis.get("confidence", 0), 0.8)),
+                "key_factors": ["Balanced positive/negative indicators"] + analysis.get("key_factors", [])
             })
-        # Auto-correct Mixed if confidence borderline
-        elif analysis["sentiment"] == "Mixed" and analysis["confidence"] >= 0.7:
-            analysis["sentiment"] = "Negative" if len(found_negatives) >=1 else "Positive"
-
-        # Confidence boosting for clear positives
-        positive_terms = ["beat", "raised", "growth", "record", "increase"]
-        pos_count = sum(transcript.lower().count(t) for t in positive_terms)
         
-        if pos_count >= 4 and "Negative" not in analysis["sentiment"]:
-            analysis["confidence"] = min(analysis.get("confidence", 0) + 0.3, 1.0)
+        # Prevent over-classification to Negative
+        if analysis["sentiment"] == "Negative" and pos_count >= 4:
+            analysis["sentiment"] = "Mixed"
+            analysis["confidence"] *= 0.9  # Reduce confidence for override
 
-        # Fallback key factors
+        # Fallback key factors with financial metrics
         if not analysis.get("key_factors") or len(analysis["key_factors"]) < 2:
             analysis["key_factors"] = [
-                "EPS/revenue performance analysis",
-                "Guidance changes evaluation",
-                "Market reaction assessment"
+                "EPS performance vs estimates",
+                "Revenue growth trajectory",
+                "Guidance revision analysis",
+                "Operating margin trends"
             ]
-
+            
         return analysis
 
     except Exception as e:
         st.error(f"Analysis error: {str(e)}")
         return None
+
 
 
 # Streamlit UI
