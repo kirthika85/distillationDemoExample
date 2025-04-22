@@ -93,7 +93,7 @@ def extract_company_info(url, transcript):
     return "Company"
 
 def analyze_overall_sentiment(transcript, api_key, company_name=""):
-    """Financial-focused sentiment analysis"""
+    """Financial-focused sentiment analysis with research-based improvements"""
     client = openai.OpenAI(api_key=api_key)
     
     negative_triggers = [
@@ -102,54 +102,57 @@ def analyze_overall_sentiment(transcript, api_key, company_name=""):
         "challenges", "uncertainty", "operating loss", "write-down", "downgrade"
     ]
     
-    prompt = f"""As a FINANCIAL ANALYST, analyze this {company_name} earnings call transcript.
-Focus on these KEY FACTORS (weighted importance):
-1. Forward guidance (40%) 
-2. Margin trends (25%)
-3. Market reaction (20%)
-4. Analyst Q&A tone (15%)
-
-CLASSIFY AS NEGATIVE IF ANY:
-- Guidance below expectations
-- Negative market reaction
-- Margin pressure
-- Defensive Q&A
-- Cost-cutting focus
-
-FORMAT (STRICT JSON):
-{{
-  "sentiment": "Negative/Cautiously Negative/Neutral/Cautiously Positive/Positive",
-  "confidence": 0-1,
-  "key_factors": ["list","of","factors"],
-  "negative_triggers": ["list","of","detected_triggers"]
-}}
-
-TRANSCRIPT:
-{transcript[:12000]}"""
+    # Research-based prompt engineering (Dhar et al., Ahmed et al.)
+    prompt = f"""As a senior financial analyst specializing in earnings calls, analyze this {company_name} transcript.
+            Consider these aspects in order of importance:
+            1. Forward guidance and future projections (40% weight)
+            2. Margin trends and profitability metrics (25% weight)
+            3. Immediate market reaction mentioned (20% weight)
+            4. Analyst Q&A tone and management responsiveness (15% weight)
+            
+            Apply these classification rules:
+            - Positive: Raised guidance AND strong margins AND positive market reaction
+            - Cautiously Positive: Met expectations BUT concerns in <=1 key area
+            - Neutral: No significant positive/negative indicators
+            - Cautiously Negative: Missed expectations OR significant concerns in 1-2 areas
+            - Negative: Missed expectations AND negative guidance AND market decline
+            
+            Format response as JSON with: sentiment, confidence (0-1), key_factors, negative_triggers
+            
+            TRANSCRIPT:
+            {transcript[:12000]}"""
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4-turbo",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
+            temperature=0.1,  # Lower for financial analysis
+            response_format={"type": "json_object"},
             max_tokens=500
         )
         raw_output = response.choices[0].message.content
-        analysis = json.loads(raw_output)
         
-        # Post-process validation
+        # Clean JSON response (address markdown issues)
+        clean_output = raw_output.replace('``````', '').strip()
+        analysis = json.loads(clean_output)
+        
+        # Research-backed validation (Fei et al., Deng et al.)
         found_triggers = [t for t in negative_triggers if t in transcript.lower()]
-        if found_triggers:
-            if analysis["sentiment"] not in ["Negative", "Cautiously Negative"]:
-                analysis = {
-                    "sentiment": "Negative",
-                    "confidence": max(analysis["confidence"], 0.9),
-                    "key_factors": analysis["key_factors"] + ["Auto-detected triggers"],
-                    "negative_triggers": found_triggers
-                }
+        
+        # Only override if confidence < 0.7 and triggers present
+        if found_triggers and analysis.get("confidence", 0) < 0.7:
+            analysis.update({
+                "sentiment": "Negative",
+                "confidence": max(analysis.get("confidence", 0), 0.8),
+                "key_factors": analysis.get("key_factors", []) + ["System-detected negative indicators"],
+                "negative_triggers": found_triggers
+            })
         
         return analysis
         
+    except json.JSONDecodeError:
+        st.error("Failed to parse analysis results. Please try again.")
+        return None
     except Exception as e:
         st.error(f"API Error: {str(e)}")
         return None
